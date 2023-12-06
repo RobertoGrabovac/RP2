@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tečajna lista</title>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.js"></script>	
+    <style>
+        #button-container {
+            position: relative;
+        }
+       
+        #sljedeci {
+            position: absolute;
+            left: 795px;
+        }
+        #rates-container{
+          position: absolute;
+          right: 20%;
+          top: 40%;
+        }
+    </style>
+</head>
+<body>
+
+    <div id = "canvas-container">
+    </div>
+
+    <div id="button-container">
+        <input type="button" value="Prethodni mjesec" id="prethodni">
+        <input type="button" value="Sljedeći mjesec" id="sljedeci">
+    </div>
+
+    <div id="rates-container">
+      <label style="background-color:rgb(231, 166, 166); width: 80px; display: inline-block;" for="r1" id="l1"><input type="checkbox" id="r1" value="AUD">AUD</label> <br>
+      <label style="background-color:#98df98; width: 80px; display: inline-block;" for="r2" id="l2"><input type="checkbox" id="r2" value="CZK">CZK</label> <br>
+      <label style="background-color:#6c6272; width: 80px; display: inline-block;" for="r3" id="l3"><input type="checkbox" id="r3" value="GBP">GBP</label> <br>
+      <label style="background-color:#e4e4ad; width: 80px; display: inline-block;" for="r4" id="l4"><input type="checkbox" id="r4" value="CHF">CHF</label> <br>
+      <label style="background-color:#ebd2eb; width: 80px; display: inline-block;" for="r5" id="l5"><input type="checkbox" id="r5" value="CAD">CAD</label> <br>
+      <label style="background-color:#cec0a7; width: 80px; display: inline-block;" for="r6" id="l6"><input type="checkbox" id="r6" value="JPY">JPY</label>
+    </div>
+    
+<script>
+    let current_month = 5;
+    let current_year = 2023;
+    let left_border = null;
+    let right_border = null;
+    let currencies = []; // dvodim. polje u kojem će biti podaci o valutama koje je korisnik zatražio 
+    empty_canvas();
+
+    $(document).ready(function() {
+      $('#button-container').on('click', 'input', update_date);
+      $('#rates-container').on('click', 'input', kontaktiraj_server);
+    });
+
+    function active_currencies() {
+      let cont = $('#rates-container');
+      active = [];
+      let checked = false;
+      cont.children().each((index, element) => {
+        let el = $(element);
+        if (el.is("label")) {
+          let id = "#" + el.attr("for");
+          let chkb = $(id);
+          if (chkb.is(':checked'))
+            active.push(chkb.val());
+        }
+      });
+
+
+      return active;
+    }
+
+    // promijeni mjesec, pripremi canvas i makni oznacene checkboxove
+    function update_date() {
+      let clicked_btn = $(this);
+      let promjena = 0;
+
+      if (clicked_btn.val() === "Prethodni mjesec") promjena = -1;
+      else promjena = 1;
+
+      if (current_month + promjena > 12) {
+        current_month = 1;
+        current_year++;
+      } else if (current_month + promjena <= 0) {
+        current_month = 12;
+        current_year--;
+      } else current_month += promjena;
+
+      empty_canvas();
+      reset_checkboxes();
+    }
+
+    function reset_checkboxes() {
+      btn = "#r";
+      for (let i = 1; i <= 6; i++) {
+        button = $(btn + i);
+        button.prop('checked', false);
+      }
+    }
+
+    function create_start_date() {
+      let str_date = "" + current_year + "-";
+      if (current_month >= 1 && current_month <= 9)
+        str_date += '0';
+      str_date += current_month;
+      str_date += '-01';
+      return new Date(str_date);
+    }
+
+    // prima podatke o valuti od pocetnog do zadnjeg dana u trenutnom mjesecu i salje to funkciji crtaj()
+    function kontaktiraj_server(event) {
+        // u donjem polju se nalaze imena valuta koje korisnika zanimaju
+        let demanded_currencies = active_currencies();
+        //console.log(demanded_currencies);
+        let currencyRate = [];
+
+        // donje polje šaljemo funciji za crtanje canvasa. To je dvodim. polje koje ce imati stupaca koliko mjesec ima dana, a redaka onoliko koliko ima valuta za prikazati
+        currencies = [];
+        for (let i = 0; i < demanded_currencies.length; i++)
+          currencies[i] = [];
+
+        if (demanded_currencies.length == 0) {
+          empty_canvas();
+          return;
+        }
+ 
+        let startDate = create_start_date();
+        let endDate = new Date(current_year, current_month, 1);
+        let API_URL = 'https://api.exchangerate.host/timeseries';
+        
+        let startDateString = startDate.toISOString().split('T')[0];
+        let endDateString = endDate.toISOString().split('T')[0];
+        
+        let url = `${API_URL}?start_date=${startDateString}&end_date=${endDateString}&symbols=`;
+        for (i = 0; i < demanded_currencies.length; i++) {
+          url += demanded_currencies[i];
+          if (i < demanded_currencies.length - 1) url += ',';
+        }
+        //console.log(url);
+
+        $.ajax({
+          url: url,
+          method: 'GET',
+          async: true,
+          success: function(response) {
+            //console.log(response);
+            //console.log(response.success);
+            
+            for (i = 0; i < demanded_currencies.length; i++) {
+              let active = demanded_currencies[i];
+              for (let date in response.rates) {
+                let value = response.rates[date][active];
+                currencies[i].push(value);
+              }
+            }
+            crtaj();
+          },
+          error: function(error) {
+            console.error('Error fetching exchange rates:', error);
+          }
+        });
+        
+    }
+
+    function getCurrencyColor(i) {
+      let cont = $('#rates-container');
+      let j = 0;
+      let color;
+      cont.children().each((index, element) => {
+        let el = $(element);
+        if (el.is("label")) {
+          let id = "#" + el.attr("for");
+          let chkb = $(id);
+          if (chkb.is(':checked')) {
+            if (i == j)
+              color = el.css('background-color');
+            j++;
+          }
+        }
+      });
+
+      return color;
+    }
+
+    function getCurrencyString(i) {
+      let cont = $('#rates-container');
+      let j = 0;
+      let string;
+      cont.children().each((index, element) => {
+        let el = $(element);
+        if (el.is("label")) {
+          let id = "#" + el.attr("for");
+          let chkb = $(id);
+          if (chkb.is(':checked')) {
+            if (i == j)
+              string = chkb.attr('value');
+            j++;
+          }
+        }
+      });
+
+      return string;
+    }
+
+    function crtaj() {
+      empty_canvas(); 
+
+      //console.log(currencies);
+
+      const canvas = $('#canvas');
+      const ctx = canvas.get(0).getContext('2d');
+      const canvasWidth = canvas.width();
+      const canvasHeight = canvas.height();
+
+      const xAxisValues = [];
+      for (let i = 1; i <= 31; i++) xAxisValues.push(i); 
+
+      let flattenedArray = currencies.flat();
+      let yMax = Math.max(...flattenedArray);
+      let yMin = Math.min(...flattenedArray);
+      yMax = 1.05 * yMax;
+      yMin = 0.95 * yMin;
+      const yRange = yMax - yMin;
+      const desiredLabelCount = 6; 
+
+      const yScaleFactor = (canvasHeight - 40) / yRange;
+      const axisLabelFont = '12px Arial';
+      const axisLabelColor = 'black';
+
+      ctx.font = axisLabelFont;
+      ctx.fillStyle = axisLabelColor;
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.strokeStyle = 'rgb(150,150,150)';
+      
+      const labelStep = yRange / (desiredLabelCount - 1);
+      let xCoord = 0;
+    
+      for (let i = 0; i < desiredLabelCount; i++) {
+        const labelValue = yMin + i * labelStep;
+        const yCoord = canvasHeight - (labelValue - yMin) * yScaleFactor - 20; 
+
+        const label = labelValue.toFixed(3);
+        const labelWidth = ctx.measureText(label).width;
+
+        if (xCoord + labelWidth > canvasWidth) {
+          xCoord = canvasWidth - labelWidth;
+        } else if (xCoord - labelWidth < 0) {
+          xCoord = labelWidth;
+        } 
+
+        ctx.fillText(label, xCoord, yCoord);
+      }
+
+      const horizontalSpacing = (canvasWidth) / (xAxisValues.length + 1);
+
+
+      let xCoords = [];
+      for (i = 0; i < currencies.length; i++) {
+        ctx.strokeStyle = getCurrencyColor(i);
+        ctx.lineWidth = 2;
+        currencies[i].forEach((xValue, index) => { 
+          const yValue = currencies[i][index];
+          const yCoord = canvasHeight - (yValue - yMin) * yScaleFactor - 20; 
+
+          let xCoord = (index + 1) * horizontalSpacing + 30; 
+
+          xCoords.push(xCoord);
+
+          ctx.beginPath();
+          ctx.arc(xCoord, yCoord, 8, 0, 2 * Math.PI);
+          ctx.stroke();
+        
+          if (index > 0) {
+            const prevYValue = currencies[i][index - 1];
+            const prevYCoord = canvasHeight - (prevYValue - yMin) * yScaleFactor - 20;
+            let prevXCoord = index * horizontalSpacing + 30;
+            ctx.beginPath();
+            ctx.moveTo(prevXCoord, prevYCoord);
+            ctx.lineTo(xCoord, yCoord);
+            ctx.stroke();
+          }
+        });
+      }
+
+  ctx.strokeStyle = 'red';
+
+  let copyCanvas = $('<canvas>').attr('width', canvas.attr('width')).attr('height', canvas.attr('height'));
+  let ctx1 = canvas.get(0).getContext('2d');
+  let copyCtx = copyCanvas.get(0).getContext('2d');
+  copyCtx.drawImage(canvas.get(0), 0, 0);
+  console.log(xCoords);
+  let rect = canvas.get(0).getBoundingClientRect();
+  for (let k = 0; k < xCoords.length; k++)
+    xCoords[k] = 0.95 * xCoords[k]; // zbog ctx.scale(0.95, 0.95); u funkciji empty_canvas
+
+  canvas.on('mousemove', function(event) {
+      if (event.clientX - rect.left >= left_border && event.clientX - rect.left <= right_border) draw_line(event, copyCanvas);
+
+      for (let k = 0; k < xCoords.length; k++) 
+        if (Math.abs((event.clientX - rect.left) - xCoords[k]) <= 4.5 && event.clientX - rect.left >= left_border && event.clientX - rect.left <= right_border)
+            draw_balloons(event, copyCanvas, k, yMin, yScaleFactor);
+  });
+}
+
+  function draw_balloons(event, copyCanvas, k, yMin, yScaleFactor) {
+    let canvas = $('#canvas');
+    let ctx = canvas.get(0).getContext('2d');
+    ctx.resetTransform();
+    let rect = canvas.get(0).getBoundingClientRect();
+    
+    var width = 100; 
+    var height = 30; 
+
+    for (let i = 0; i < currencies.length; i++) {
+      ctx.fillStyle = getCurrencyColor(i);
+      if (k < 29)
+        ctx.fillRect(event.clientX - rect.left + 10, (700 - (currencies[i][k] - yMin) * yScaleFactor - 20) * 0.95, width, height);
+      else
+        ctx.fillRect(event.clientX - rect.left - 10 - width, (700 - (currencies[i][k] - yMin) * yScaleFactor - 20) * 0.95, width, height);
+      let text = getCurrencyString(i) + ": " + currencies[i][k];
+      ctx.fillStyle = 'white';
+      ctx.font = '12px Arial';
+      ctx.textAlign = 'left';
+      if (k < 29)
+        ctx.fillText(text, event.clientX - rect.left + 13, (700 - (currencies[i][k] - yMin) * yScaleFactor - 20) * 0.95 + 15);
+      else
+        ctx.fillText(text, event.clientX - rect.left - 5 - width, (700 - (currencies[i][k] - yMin) * yScaleFactor - 20) * 0.95 + 15);
+    }
+
+  }
+
+  function draw_line(event, copyCanvas) {
+    let canvas = $('#canvas');
+    let ctx = canvas.get(0).getContext('2d');
+
+    ctx.resetTransform();
+    ctx.clearRect(0, 0, canvas.attr('width'), canvas.attr('height'));
+    
+    ctx.drawImage(copyCanvas.get(0), 0, 0);
+    let rect = canvas.get(0).getBoundingClientRect();
+    ctx.beginPath();
+    ctx.moveTo(event.clientX - rect.left, 20);
+    ctx.lineTo(event.clientX - rect.left, 645);
+    ctx.stroke();
+  }
+
+  function empty_canvas() {
+    let canvas_div = $( '#canvas-container');
+    canvas_div.empty()
+
+    let new_canvas = $('<canvas>')
+    new_canvas.attr({
+    'height': '700',
+    'width': '1100',
+    'id': 'canvas'
+    });
+
+    canvas_div.append(new_canvas);
+    new_canvas = $('#canvas');
+
+    let ctx = new_canvas.get(0).getContext('2d');
+
+    ctx.scale(0.95, 0.95);
+    let canvasHeight = parseInt(new_canvas.attr('height'));
+    let canvasWidth = new_canvas.attr('width');
+    let yRange = 6;
+    let yScaleFactor = (canvasHeight - 40) / 6;
+    let desiredLabelCount = 6;
+    const labelStep = yRange / (desiredLabelCount - 1);
+    let y_first, y_last;
+    let first_x = null, last_x;
+    let xCoord = 0;
+    let label_y = [];
+    
+
+    for (let i = 0; i < desiredLabelCount; i++) {
+        const labelValue = 0 + i * labelStep;
+        const yCoord = canvasHeight - labelValue * yScaleFactor - 20;
+        label_y.push(yCoord);
+          
+        if (i === 0)
+          y_first = yCoord;
+        else if (i === desiredLabelCount - 1)
+          y_last = yCoord;
+      }
+
+    const xAxisValues = [];
+    for (let i = 1; i <= 31; i++) xAxisValues.push(i);
+
+    const horizontalSpacing = (canvasWidth) / (xAxisValues.length + 1);
+
+    let counter = 1;
+    let vertical_x = [];
+    xAxisValues.forEach((xValue, index) => { 
+        let xCoord = (index + 1) * horizontalSpacing + 30;
+
+        if (first_x === null) first_x = xCoord;
+
+        if ( counter === 6 || counter === 11 || counter === 16 || counter === 21 || counter === 26) vertical_x.push(xCoord); 
+      
+        counter++;
+        last_x = xCoord;
+  });
+
+    left_border = 0.95 * first_x;
+    right_border = 0.95 * last_x;
+
+    ctx.beginPath();
+    ctx.strokeStyle = 'black';
+    ctx.lineWidth = 2;
+    ctx.moveTo(first_x, label_y[desiredLabelCount-1]);
+    ctx.lineTo(first_x, label_y[0]);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(last_x, label_y[desiredLabelCount-1]);
+    ctx.lineTo(last_x, label_y[0]);
+
+    ctx.moveTo(first_x, label_y[desiredLabelCount-1]);
+    ctx.lineTo(last_x, label_y[desiredLabelCount-1]);
+
+    ctx.moveTo(first_x, label_y[0]);
+    ctx.lineTo(last_x, label_y[0]);
+    ctx.stroke();
+
+    ctx.setLineDash([5, 5]);
+    ctx.strokeStyle = 'rgb(150,150,150)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 1; i < desiredLabelCount-1; i++) {
+      ctx.moveTo(first_x, label_y[i]);
+      ctx.lineTo(last_x, label_y[i])
+    }
+    ctx.stroke();
+
+    for (let i = 0; i < vertical_x.length; i++) {
+      xCoord = vertical_x[i];
+      ctx.strokeStyle = 'rgb(150,150,150)';
+      ctx.setLineDash([5, 5]);
+      ctx.beginPath();
+      ctx.moveTo(xCoord, label_y[desiredLabelCount-1]);
+      ctx.lineTo(xCoord, label_y[0]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    ctx.font = '13px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'black';
+    let date = "" + current_year + "-";
+    if (current_month <= 9) date += "0";
+    date += current_month + "-";
+    ctx.fillText(date + "01", first_x, canvasHeight + 10);
+    for (let i = 0; i < vertical_x.length; i++) {
+      if (i == 0) ctx.fillText(date + "06", vertical_x[i], canvasHeight + 10);
+      else if (i == 1) ctx.fillText(date + "11", vertical_x[i], canvasHeight + 10);
+      else if (i == 2) ctx.fillText(date + "16", vertical_x[i], canvasHeight + 10);
+      else if (i == 3) ctx.fillText(date + "21", vertical_x[i], canvasHeight + 10);
+      else ctx.fillText(date + "26", vertical_x[i], canvasHeight + 10);
+    }
+
+  }
+
+</script>
+
+
+</body>
+</html>
